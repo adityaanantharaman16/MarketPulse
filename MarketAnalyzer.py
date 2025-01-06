@@ -1,5 +1,11 @@
 from PatternDetector import PatternDetector
-
+from analysis_components import VolumeAnalyzer, TechnicalAnalyzer, RiskAnalyzer
+from TradeAdvisor import TradeAdvisor
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+import time
 
 class MarketAnalyzer:
     def __init__(self, symbol, start_date, end_date, interval):
@@ -9,111 +15,201 @@ class MarketAnalyzer:
         self.interval = interval
         self.data = None
 
-    def get_data(self):
-        import yfinance as yf
+        # Initialize analysis components
+        self.volume_analyzer = VolumeAnalyzer()
+        self.technical_analyzer = TechnicalAnalyzer()
+        self.risk_analyzer = RiskAnalyzer()
 
-        self.data = yf.download(self.symbol, start=self.start_date, end=self.end_date, interval=self.interval)
-        print(f"Data for {self.symbol} from {self.start_date} to {self.end_date}")
-        return self.data
+        # Analysis results storage
+        self.analysis_results = {}
+
+    def get_data(self, max_retries=3):
+        """Fetches data with retry mechanism and proper error handling"""
+        for attempt in range(max_retries):
+            try:
+                ticker = yf.Ticker(self.symbol)
+                self.data = ticker.history(
+                    start=self.start_date,
+                    end=self.end_date,
+                    interval=self.interval
+                )
+
+                if self.data.empty:
+                    raise ValueError(f"No data retrieved for {self.symbol}")
+
+                print(f"Successfully downloaded data for {self.symbol} from {self.start_date} to {self.end_date}")
+                return self.data
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"Attempt {attempt + 1} failed. Retrying in 2 seconds...")
+                    time.sleep(2)
+                else:
+                    raise Exception(f"Failed to download data for {self.symbol} after {max_retries} attempts: {str(e)}")
+
+    def analyze_all(self):
+        """Runs all analysis components"""
+        if self.data is None:
+            raise ValueError("No data available. Use get_data() first.")
+
+        # Run moving averages (existing functionality)
+        self.moving_averages()
+
+        # Run new analysis components
+        self.analysis_results['volume'] = self.volume_analyzer.analyze(self.data)
+        self.analysis_results['technical'] = self.technical_analyzer.analyze(self.data)
+        self.analysis_results['risk'] = self.risk_analyzer.analyze(self.data)
+
+        return self.analysis_results
 
     def moving_averages(self):
-        import pandas as pd
-
-        # Checks if data is obtained
-        if self.data is None:
+        """Existing moving averages calculation"""
+        if self.data is None or self.data.empty:
             raise ValueError('No data available. Use get_data() first.')
 
-        # Calculates moving averages in short time frames(20 days and 50 days).
+        if len(self.data) < 50:
+            raise ValueError('Not enough data points for 50-day moving average')
+
         self.data['20_avg'] = self.data['Close'].rolling(window=20).mean()
         self.data['50_avg'] = self.data['Close'].rolling(window=50).mean()
-        print('Data for 20-day and 50-day moving averages.')
+
+        print('Successfully calculated 20-day and 50-day moving averages.')
         return self.data
 
-    def plot_data(self, comparison_data=None, comparison_symbol=None):
-        import matplotlib.pyplot as plt
+    def get_trading_signals(self):
+        """Generates trading signals based on all analysis components"""
+        if not self.analysis_results:
+            self.analyze_all()
 
-        # Checks if moving averages are calculated
-        if '20_avg' not in self.data.columns or '50_avg' not in self.data.columns:
-            raise ValueError('Moving averages not calculated. Use moving_averages() first.')
+        signals = []
 
-        fig, ax1 = plt.subplots(figsize=(14, 7))
+        # Volume-based signals
+        for divergence in self.analysis_results['volume']['volume_price_divergence']:
+            signals.append({
+                'date': divergence['date'],
+                'type': f"Volume-Price {divergence['type']} divergence",
+                'price': divergence['price']
+            })
 
-        # Plotting data of primary stock
-        ax1.plot(self.data.index, self.data['Close'], label=f'{self.symbol} CLosing Price', color='blue')
-        ax1.plot(self.data.index, self.data['20_avg'], label=f'{self.symbol} 20-day Moving Average',
-                 color='orange')
-        ax1.plot(self.data.index, self.data['50_avg'], label=f'{self.symbol} 50-day Moving Average',
-                 color='green')
+        # Technical signals (example with RSI)
+        rsi = self.analysis_results['technical']['rsi']
+        overbought = rsi[rsi > 70].index
+        oversold = rsi[rsi < 30].index
 
-        ax1.set_xlabel('Date')
-        ax1.set_ylabel(f'{self.symbol} Price')
-        ax1.tick_params(axis='y')
-        ax1.legend(loc='upper left')
+        for date in overbought:
+            signals.append({
+                'date': date,
+                'type': 'RSI Overbought',
+                'price': self.data.loc[date, 'Close']
+            })
 
-        if comparison_data is not None and comparison_symbol is not None:
-            # Creates second axis y for the comparison stock
-            ax2 = ax1.twinx()
-            ax2.plot(comparison_data.index, comparison_data['Close'], label=f'{comparison_symbol} Closing Price',
-                     color='purple')
-            ax2.plot(comparison_data.index, comparison_data['20_avg'],
-                     label=f'{comparison_symbol} 20-day Moving Average',
-                     color='red')
-            ax2.plot(comparison_data.index, comparison_data['50_avg'],
-                     label=f'{comparison_symbol} 50-day Moving Average',
-                     color='brown')
+        for date in oversold:
+            signals.append({
+                'date': date,
+                'type': 'RSI Oversold',
+                'price': self.data.loc[date, 'Close']
+            })
 
-            ax2.set_ylabel(f'{comparison_symbol} Price')
-            ax2.tick_params(axis='y')
-            ax2.legend(loc='upper right')
+        return signals
 
-            plt.title(f'{self.symbol} vs {comparison_symbol} Stock Price with Moving Averages')
-        else:
-            plt.title(f'{self.symbol} Stock Price with Moving Averages')
+    def get_trade_advice(self, portfolio_value: float = 10000, risk_tolerance: str = 'moderate'):
+        """Get trading advice for amateur investors"""
+        if not self.analysis_results:
+            self.analyze_all()
 
+        advisor = TradeAdvisor(risk_tolerance=risk_tolerance)
+        current_price = self.data['Close'].iloc[-1]
+
+        advice = advisor.analyze_trading_opportunity(
+            self.analysis_results,
+            current_price,
+            portfolio_value
+        )
+
+        # Print friendly format
+        print("\n=== Trading Advice ===")
+        print(f"Current Price: ${current_price:.2f}")
+        print(f"\nRecommended Action: {advice['action']}")
+        print(f"Confidence Level: {advice['confidence']}%")
+        print("\nReasoning:")
+        for reason in advice['reasoning']:
+            print(f"- {reason}")
+
+        print(f"\nRisk Management:")
+        print(f"- Stop Loss: ${advice['stop_loss']}")
+        print(f"- Target Price: ${advice['target_price']}")
+        print(f"- Recommended Position: {advice['recommended_shares']} shares (${advice['max_position_value']:.2f})")
+        print(f"- Risk per Share: ${advice['risk_per_share']}")
+        print(f"- Potential Profit per Share: ${advice['potential_profit_per_share']}")
+
+        if advice['alerts']:
+            print("\nImportant Alerts:")
+            for alert in advice['alerts']:
+                print(f"- {alert}")
+
+        return advice
+
+    def plot_data(self, comparison_data=None, comparison_symbol=None, show_volume=True):
+        """Enhanced plotting with volume and additional indicators"""
+        if self.data is None or self.data.empty:
+            raise ValueError('No data available for plotting')
+
+        # Create figure with subplots
+        fig = plt.figure(figsize=(15, 10))
+
+        # Price plot
+        ax1 = plt.subplot2grid((3, 1), (0, 0), rowspan=2)
+        ax1.plot(self.data.index, self.data['Close'], label=f'{self.symbol} Price')
+        if '20_avg' in self.data.columns:
+            ax1.plot(self.data.index, self.data['20_avg'],
+                     label='20-day MA', linestyle='--')
+        if '50_avg' in self.data.columns:
+            ax1.plot(self.data.index, self.data['50_avg'],
+                     label='50-day MA', linestyle='--')
+
+        # Volume plot
+        if show_volume:
+            ax2 = plt.subplot2grid((3, 1), (2, 0), sharex=ax1)
+            ax2.bar(self.data.index, self.data['Volume'], alpha=0.5)
+            ax2.set_ylabel('Volume')
+
+        plt.tight_layout()
         plt.show()
-        print('Stock data plotted with moving averages.')
-
+        print('Successfully plotted stock data with indicators.')
 
 if __name__ == "__main__":
+    try:
+        # Set up date range
+        start_date = '2020-01-01'
+        end_date = datetime.now().strftime('%Y-%m-%d')
 
-    # Creates MarketAnalyzer instance
-    analyzer = MarketAnalyzer(symbol='AAPL', start_date='2020-01-01', end_date='2024-08-13', interval='1d')
+        # Create and configure analyzer
+        analyzer = MarketAnalyzer('NVDA', start_date, end_date, '1d')
+        analyzer.get_data()
 
-    # Gets historical data
-    analyzer.get_data()
+        # Run analysis
+        results = analyzer.analyze_all()
 
-    # Calculates moving averages
-    analyzer.moving_averages()
+        # Get trading signals
+        signals = analyzer.get_trading_signals()
 
-    # Same done for comparison data
-    comp_analyzer = MarketAnalyzer(symbol='AMZN', start_date='2020-01-01', end_date='2024-08-13', interval='1d')
-    comp_analyzer.get_data()
-    comp_analyzer.moving_averages()
+        # Print some results
+        print("\n=== Analysis Results ===")
+        print(f"\nVolatility: {results['risk']['volatility']:.2%}")
+        print(f"95% VaR: {results['risk']['var_95']:.2%}")
+        print(f"Max Drawdown: {results['risk']['max_drawdown']:.2%}")
 
-    # Creates PatternDetector instance
-    detector = PatternDetector(analyzer.data, comparison_data=comp_analyzer.data)
+        print("\n=== Trading Signals ===")
+        for signal in signals[-5:]:  # Show last 5 signals
+            print(f"Date: {signal['date']}, Type: {signal['type']}, Price: ${signal['price']:.2f}")
 
-    # Detection for SMT Divergence
-    print("\n--- SMT Divergence Signals ---")
-    smt_signals = detector.smt_divergence()
-    for signal in smt_signals:
-        print(f'Date: {signal[0]}, Signal: {signal[1]}, {analyzer.symbol} Close: '
-              f'{analyzer.data["Close"].loc[signal[0]]}, {comp_analyzer.symbol} Close: '
-              f'{comp_analyzer.data["Close"].loc[signal[0]]}')
+        # Plot the data
+        analyzer.plot_data(show_volume=True)
 
-    # Detection for Inverse Fair Value Gap
-    print("\n--- Inverse Fair Value Gap Signals ---")
-    fvg_signals = detector.inverse_fvg()
-    for signal in fvg_signals:
-        print(
-            f'Date: {signal[0]}, Signal: {signal[1]}, {analyzer.symbol} Close: {analyzer.data["Close"].loc[signal[0]]}')
+        # Get trading advice
+        print("\nGenerating Trading Advice for a $10,000 portfolio...")
+        analyzer.get_trade_advice(portfolio_value=10000, risk_tolerance='moderate')
 
-    # Detection for Moving Average Crossover
-    print("\n--- Moving Average Crossover Signals ---")
-    ma_signals = detector.ma_crossover()
-    for signal in ma_signals:
-        print(
-            f'Date: {signal[0]}, Signal: {signal[1]}, {analyzer.symbol} Close: {analyzer.data["Close"].loc[signal[0]]}')
-
-    # Plot
-    analyzer.plot_data()
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        raise
