@@ -1,0 +1,70 @@
+MarketAnalyzer:
+This class analyzes historical data by calculating indicators and plotting results.
+
+Parameters for MarketAnalyzer instance:
+'symbol': The stock symbol, e.g., "NVDA" for Nvidia
+'start_date': Start date of historical data
+'end_date': End date of historical data
+'interval': Frequency of data points
+'self.data': Initialized to 'None', this will later hold the fetched stock data once
+later methods are called.
+
+Methods:
+'get_data': fetches historical data using 'yfinance' library and stores it in 'self.data'
+Imports yfinance library, calls the download method to fetch data based on provided parameters
+and outputs a message while returning data.
+
+'moving_averages': imports the 'pandas' library for data manipulation. Checks if data has been
+fetched, then raises an error if not. If yes, 20-day and 50-day moving averages are calculated by
+taking the rolling mean of the closing prices and stored in respective columns. Outputs a message and
+returns the data.
+
+Visualizing moving averages helps identify trends and potential reversal points in a stock's price.
+
+Uptrend: If the stock price is consistently higher than its moving average, it suggests an uptrend, market is bullish,
+and prices are generally rising
+
+Downtrend: Opposite of uptrend, stock price is consistently below moving average, suggesting downtrend, market is
+bearish with falling prices.
+
+Trend Direction: Slope of moving average can indicate the direction of the trend.
+A positive slope suggests an uptrend while a negative slope suggests a downtrend. The derivative of the moving average
+can indicate whether a stock is gaining/losing momentum.
+
+Slopes are primary indicators, while derivatives are just additional insight.
+
+Support and resistance levels: In uptrends, the moving average may serve as a support level, where the price tends to
+bounce back up after touching the average. In downtrends, the moving average may serve as a resistance level, where the
+price is likely to fall back down after reaching the moving average.
+
+Smoothing out volatility: A moving average smooths out fluctuations and volatility in closing prices, making it easier
+observe underlying trends without being distracted by short-term movements.
+
+Trading signals:
+
+'plot_data': Plots stock closing price along with 20-day and 50-day moving averages. Imports 'matplotlib' for
+plots and visualizations. First checks if moving averages have been calculated by checking the data columns,
+raises an error if not calculated. If yes, a plot is created with appropriate labelling.
+
+Execution block: Ensures MarketAnalyzer methods are executed in correct order
+
+
+PatternDetector:
+This class implements detection methods that help identify trading signals.
+
+Parameters for 'PatternDetector' instance:
+'data': DataFrame containing price and calculated indicators like moving averages.
+
+Methods:
+'smt_divergence': This methods detects an SMT divergence between two datasets by looping through the closing prices
+day by day.
+
+Bullish Divergence: The primary asset closes at a higher price than the day before, while the comparison asset
+closes at a lower price than the day before.
+
+Bearish Divergence: The primary asset closes at a lower price than the day before, while the comparison asset closes at
+a higher price than the day before.
+
+The method returns a list of whether the divergence is bullish or bearish at each close in a specified interval.
+
+Interpreting SMT divergence
